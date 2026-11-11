@@ -16,7 +16,7 @@ import numpy as np
 PORT_ID = "/dev/tty.usbmodem5B8E1147771" 
 ROBOT_NAME = "hungeryBird" 
 
-GRIPPER_OPEN = 60.0            
+GRIPPER_OPEN = 45.0            
 GRIPPER_CLOSED = 5.0
 
  
@@ -49,8 +49,8 @@ desired_position = {
     'wrist_roll': 0.0,
     'gripper': GRIPPER_OPEN  # 0-100 range
 }
-move_time = 5.0  # seconds to reach desired position
-hold_time = 2.0  # total time to hold at desired position
+move_time = 1.0  # seconds to reach desired position
+# hold_time = 1.0  # total time to hold at desired position
  
 HOME = {j: desired_position[j] for j in JOINTS}
 
@@ -71,7 +71,7 @@ transport_height = 0.10
 
 MAX_OBSTACLES = 25
 OBSTACLE_CLEARANCE = 0.005
-PATH_SAMPLE_STEP = 0.01
+PATH_SAMPLE_STEP = 0.05
 PATH_SEGMENT_TIME = 0.5
 
  
@@ -157,7 +157,6 @@ def solve(point):
 def move(bus, joints, gripper, label, duration=move_time):
     print(f"{label}: {np.round(list(joints.values()), 1)}  gripper={gripper}")
     move_to_pose(bus, {**joints, "gripper": gripper}, duration)
-    time.sleep(0.5)
 
 # Lab 2 configuration and motion functions
 # Prompt for a finite X Y coordinate pair, in metres.
@@ -222,13 +221,23 @@ def prompt_environment_configuration():
             break
         print("Height must be finite.")
 
+    while True:
+        try:
+            transport_height = float(input("Transport height z (metres): "))
+        except ValueError:
+            print("Height must be a number.")
+            continue
+        if np.isfinite(transport_height) and transport_height > object_height:
+            break
+        print("Transport height must be finite and above the pickup/place height.")
+
     return {
         "obstacles": obstacles,
         "object_start": list(object_start),
         "goal": list(goal),
         "object_radius": object_radius,
         "object_height": object_height,
-        "transport_height": 0.10,
+        "transport_height": transport_height,
     }
 
 
@@ -268,7 +277,7 @@ def segment_intersects_rectangle(start, end, rectangle):
 def plan_object_path(start, goal, obstacles, object_radius):
     """Find a shortest polyline with object-radius clearance around rectangles."""
     inflation = object_radius + OBSTACLE_CLEARANCE
-    corner_offset = 0.001
+    corner_offset = 0.003
     inflated_obstacles = []
     nodes = [tuple(start), tuple(goal)]
 
@@ -348,7 +357,7 @@ def mode_run():
         raise ValueError(f"{ENVIRONMENT_FILE.name} not found; run --configure_obstacles first")
 
     configuration = json.loads(ENVIRONMENT_FILE.read_text())
-    object_start = np.asarray(configuration["object_start"], dtype=float)
+    object_start = np.asarray(configuration["object_start"], dtype=float) * 1.06
     goal = np.asarray(configuration["goal"], dtype=float)
     radius = float(configuration["object_radius"])
     pickup_z = float(configuration["object_height"])
@@ -375,10 +384,12 @@ def mode_run():
             raise ValueError(f"Obstacle {index} minimum coordinates must be less than maximum coordinates")
         obstacles.append((tuple(rectangle[0]), tuple(rectangle[1])))
 
-    path = plan_object_path(object_start, goal, obstacles, radius)
-    sampled_path = sample_path(path)
+    path = plan_object_path(object_start, goal, obstacles, radius) 
+    sampled_path = sample_path(path) # to create a denser set of points along the planned path
+    print(path)
+    # print(sampled_path)
     print("Planned object path (x, y):", [np.round(point, 4).tolist() for point in path])
-    print(f"Clearance: object radius {radius:.3f} m + {OBSTACLE_CLEARANCE:.3f} m.")
+    print(f"Clearance: object radius {radius:.4f} m + {OBSTACLE_CLEARANCE:.4f} m.")
 
     cartesian_targets = [
         ("APPROACH", [object_start[0], object_start[1], transport_height], GRIPPER_OPEN, move_time),
